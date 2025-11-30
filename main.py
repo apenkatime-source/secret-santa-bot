@@ -18,7 +18,7 @@ from telegram.ext import (
 
 # ====== НАСТРОЙКИ ======
 ADMIN_USERNAME = "penk_a3"
-BOT_TOKEN = os.getenv("8422654908:AAFDG0yRJ2j53Ro0Wzj1OnDCRzGPldg1Pyc")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 BUDGET_TEXT = "🎁 Бюджет подарка: 25–30р (но не ограничен)"
 # =======================
 
