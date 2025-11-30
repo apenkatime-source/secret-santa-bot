@@ -1,153 +1,296 @@
-import os
+import telebot
+from telebot import types
 import random
-from telegram import (
-    Update, 
-    InlineKeyboardButton, 
-    InlineKeyboardMarkup, 
-    ReplyKeyboardMarkup, 
-    KeyboardButton
+import logging
+import os
+
+# --------------------------------------------
+# НАСТРОЙКИ
+# --------------------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Render переменная окружения
+ADMIN_ID = 338271592                # твой Telegram ID
+
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# --------------------------------------------
+# ЛОГИРОВАНИЕ
+# --------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
-from telegram.ext import (
-    ApplicationBuilder, 
-    CommandHandler, 
-    CallbackContext,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters
-)
 
-# ====== НАСТРОЙКИ ======
-ADMIN_USERNAME = "penk_a3"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-BUDGET_TEXT = "🎁 Бюджет подарка: 25–30р (но не ограничен)"
-# =======================
+# --------------------------------------------
+# ДАННЫЕ (в ОЗУ, без базы)
+# --------------------------------------------
+participants = {}      # user_id: {"name": str, "wish": str}
+assignments = {}       # user_id: whom_to_gift_id
 
-participants = {}  # user_id: {"name": "...", "wishes": "..."}
+# --------------------------------------------
+# СТИКЕРЫ / АНИМАЦИИ
+# (можешь заменить на любые свои)
+# --------------------------------------------
+WELCOME_STICKER = "CAACAgIAAxkBAAEBx9hmBYsQKqk5WmHuu9Bd39WmQ5cCsAACswIAAuXjqUs4Q3NbQobRQTUE"
+GIFT_ANIMATION = "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif"
+DRAW_ANIMATION = "https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif"
 
 
-# --- Команда /start ---
-async def start(update: Update, context: CallbackContext):
-    user = update.effective_user
+# -----------------------------------------------------
+# КРАСИВОЕ ГЛАВНОЕ МЕНЮ
+# -----------------------------------------------------
+def main_menu():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = types.KeyboardButton("🎁 Участвовать")
+    btn2 = types.KeyboardButton("📝 Мои данные")
+    btn3 = types.KeyboardButton("🎅 Кому я дарю?")
+    keyboard.add(btn1)
+    keyboard.add(btn2)
+    keyboard.add(btn3)
+    return keyboard
 
-    keyboard = [
-        [KeyboardButton("🎄 Участвовать")],
-        [KeyboardButton("ℹ Показать бюджет")]
-    ]
-    reply_kb = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    await update.message.reply_text(
-        f"Привет, {user.first_name}! 🎅\n"
-        f"Добро пожаловать в *Тайного Санту*!",
+# -----------------------------------------------------
+# АДМИН-МЕНЮ
+# -----------------------------------------------------
+def admin_menu():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("📋 Список участников", "🔄 Запустить жеребьёвку")
+    kb.add("❌ Удалить участника", "💬 Логи")
+    kb.add("⬅️ Назад")
+    return kb
+
+
+# -----------------------------------------------------
+# /start
+# -----------------------------------------------------
+@bot.message_handler(commands=["start"])
+def start(msg):
+    bot.send_sticker(msg.chat.id, WELCOME_STICKER)
+    bot.send_animation(msg.chat.id, GIFT_ANIMATION)
+    bot.send_message(
+        msg.chat.id,
+        "🎄 **Добро пожаловать в Тайного Санту!** 🎅\n\n"
+        "Нажимай «🎁 Участвовать», чтобы присоединиться!",
         parse_mode="Markdown",
-        reply_markup=reply_kb
+        reply_markup=main_menu()
     )
 
 
-# --- БЮДЖЕТ ---
-async def budget(update: Update, context: CallbackContext):
-    await update.message.reply_text(BUDGET_TEXT)
+# -----------------------------------------------------
+# УЧАСТИЕ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "🎁 Участвовать")
+def participate(msg):
+    user_id = msg.from_user.id
+
+    if user_id in participants:
+        bot.send_message(user_id, "❗ Ты уже зарегистрирован!")
+        return
+
+    bot.send_message(
+        user_id,
+        "🎁 Отлично!\n\nНапиши, пожалуйста, **своё имя и фамилию**, "
+        "чтобы участникам было понятно, кого они поздравляют."
+    )
+    bot.register_next_step_handler(msg, save_name)
 
 
-# --- УЧАСТИЕ ---
-async def participate(update: Update, context: CallbackContext):
-    user = update.effective_user
+def save_name(msg):
+    name = msg.text.strip()
+    user_id = msg.from_user.id
 
-    await update.message.reply_text(
-        "Отлично! 🎄\nНапиши, пожалуйста, свои пожелания к подарку.\n"
-        "_Если пожеланий нет — так и напиши:_ «нет»",
+    participants[user_id] = {"name": name, "wish": ""}
+
+    bot.send_message(
+        user_id,
+        "✨ Отлично! Теперь напиши, пожалуйста, свои пожелания к подарку.\n"
+        "_Если пожеланий нет — просто напиши «нет»._",
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, save_wish)
+
+
+def save_wish(msg):
+    wish = msg.text.strip()
+    user_id = msg.from_user.id
+
+    participants[user_id]["wish"] = wish
+
+    bot.send_animation(user_id, GIFT_ANIMATION)
+    bot.send_message(
+        user_id,
+        "🎉 Ты успешно зарегистрирован!\n\n"
+        "**Бюджет: 25–30 рублей, но не ограничен.**",
+        parse_mode="Markdown",
+        reply_markup=main_menu()
+    )
+
+    logging.info(f"USER REGISTERED: {user_id} ({participants[user_id]})")
+
+
+# -----------------------------------------------------
+# МОИ ДАННЫЕ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "📝 Мои данные")
+def my_data(msg):
+    user_id = msg.from_user.id
+    if user_id not in participants:
+        bot.send_message(user_id, "❗ Ты ещё не зарегистрирован.")
+        return
+
+    data = participants[user_id]
+
+    bot.send_message(
+        user_id,
+        f"📝 *Твои данные:*\n\n"
+        f"👤 Имя: {data['name']}\n"
+        f"🎀 Пожелания: {data['wish']}",
         parse_mode="Markdown"
     )
 
-    context.user_data["waiting_wishes"] = True
 
+# -----------------------------------------------------
+# ПРОВЕРИТЬ, КОМУ ДАРЮ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "🎅 Кому я дарю?")
+def who_i_gift(msg):
+    user_id = msg.from_user.id
 
-# --- СБОР ПОЖЕЛАНИЙ ---
-async def wishes(update: Update, context: CallbackContext):
-    if not context.user_data.get("waiting_wishes"):
+    if user_id not in assignments:
+        bot.send_message(user_id, "🎁 Жеребьёвка ещё не проведена!")
         return
 
-    user = update.effective_user
-    wish = update.message.text
+    target_id = assignments[user_id]
+    target = participants[target_id]
 
-    participants[user.id] = {
-        "name": user.full_name,
-        "wishes": wish
-    }
-
-    context.user_data["waiting_wishes"] = False
-
-    await update.message.reply_text(
-        "Ты успешно зарегистрирован! 🎅\n"
-        "Жди жеребьёвки 😊"
+    bot.send_message(
+        user_id,
+        f"🎅 Ты даришь подарок:\n\n"
+        f"👤 *{target['name']}*\n"
+        f"🎀 Пожелания: {target['wish']}",
+        parse_mode="Markdown"
     )
 
 
-# --- СПИСОК УЧАСТНИКОВ (только админ) ---
-async def list_participants(update: Update, context: CallbackContext):
-    if update.effective_user.username != ADMIN_USERNAME:
+# -----------------------------------------------------
+# АДМИН — ВХОД
+# -----------------------------------------------------
+@bot.message_handler(commands=["admin"])
+def admin(msg):
+    if msg.from_user.id != ADMIN_ID:
+        bot.send_message(msg.chat.id, "❌ У тебя нет доступа.")
+        return
+
+    bot.send_message(msg.chat.id, "🔧 Админ-панель:", reply_markup=admin_menu())
+
+
+# -----------------------------------------------------
+# АДМИН — СПИСОК
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "📋 Список участников")
+def admin_list(msg):
+    if msg.from_user.id != ADMIN_ID:
         return
 
     if not participants:
-        await update.message.reply_text("Пока никто не участвует 🥲")
+        bot.send_message(msg.chat.id, "Список пуст.")
         return
 
-    text = "🎄 *Список участников:*\n\n"
-    for p in participants.values():
-        text += f"• {p['name']} — пожелания: “{p['wishes']}”\n"
+    text = "📋 *Участники:*\n\n"
+    for uid, data in participants.items():
+        text += f"{data['name']} — {uid}\n"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    bot.send_message(msg.chat.id, text, parse_mode="Markdown")
 
 
-# --- ЖЕРЕБЬЁВКА ---
-async def draw(update: Update, context: CallbackContext):
-    if update.effective_user.username != ADMIN_USERNAME:
+# -----------------------------------------------------
+# АДМИН — УДАЛЕНИЕ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "❌ Удалить участника")
+def admin_delete(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    bot.send_message(
+        msg.chat.id,
+        "Введи *ID участника*, которого нужно удалить:",
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, admin_delete_do)
+
+
+def admin_delete_do(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        uid = int(msg.text)
+        if uid in participants:
+            del participants[uid]
+            bot.send_message(msg.chat.id, "Удалён.")
+        else:
+            bot.send_message(msg.chat.id, "ID не найден.")
+    except:
+        bot.send_message(msg.chat.id, "Неверный формат ID.")
+
+
+# -----------------------------------------------------
+# АДМИН — ЛОГИ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "💬 Логи")
+def admin_logs(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(msg.chat.id, "Логи хранятся в консоли Render.")
+
+
+# -----------------------------------------------------
+# АДМИН — ЖЕРЕБЬЁВКА
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "🔄 Запустить жеребьёвку")
+def run_draw(msg):
+    if msg.from_user.id != ADMIN_ID:
         return
 
     if len(participants) < 2:
-        await update.message.reply_text("Недостаточно участников для жеребьёвки.")
+        bot.send_message(msg.chat.id, "Недостаточно участников.")
         return
 
-    user_ids = list(participants.keys())
-    receivers = user_ids.copy()
+    bot.send_animation(msg.chat.id, DRAW_ANIMATION)
+    bot.send_message(msg.chat.id, "🎲 Провожу жеребьёвку...")
 
-    # Перетасовка без совпадения с самим собой
+    users = list(participants.keys())
+    targets = users.copy()
+
     while True:
-        random.shuffle(receivers)
-        if all(u != r for u, r in zip(user_ids, receivers)):
+        random.shuffle(targets)
+        if all(u != t for u, t in zip(users, targets)):
             break
 
-    # Рассылка
-    for giver, receiver in zip(user_ids, receivers):
-        rec_data = participants[receiver]
-        await context.bot.send_message(
-            chat_id=giver,
-            text=(
-                "🎅 *Жеребьёвка состоялась!* 🎄\n\n"
-                f"Ты даришь подарок: *{rec_data['name']}*\n\n"
-                f"Пожелания: “{rec_data['wishes']}”"
-            ),
+    for u, t in zip(users, targets):
+        assignments[u] = t
+        bot.send_message(
+            u,
+            "🎅 *Жеребьёвка прошла!* Вот кому ты даришь подарок:",
             parse_mode="Markdown"
         )
+        who_i_gift(types.SimpleNamespace(from_user=types.User(id=u)))
 
-    await update.message.reply_text("🎉 Жеребьёвка завершена! Все участники получили сообщения.")
-
-
-# --- ГЛАВНЫЙ ХЕНДЛЕР ---
-def main():
-    print("Запуск бота...")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("list", list_participants))
-    app.add_handler(CommandHandler("draw", draw))
-
-    app.add_handler(MessageHandler(filters.Regex("ℹ Показать бюджет"), budget))
-    app.add_handler(MessageHandler(filters.Regex("🎄 Участвовать"), participate))
-
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, wishes))
-
-    app.run_polling()
+    bot.send_message(msg.chat.id, "✔ Готово! Рассылка выполнена.")
+    logging.info("DRAW COMPLETED: assignments = %s", assignments)
 
 
-if __name__ == "__main__":
-    main()
+# -----------------------------------------------------
+# НАЗАД В МЕНЮ
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "⬅️ Назад")
+def back(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(msg.chat.id, "Возвращаюсь...", reply_markup=main_menu())
+
+
+# -----------------------------------------------------
+# ЗАПУСК
+# -----------------------------------------------------
+bot.infinity_polling()
