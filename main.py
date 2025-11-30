@@ -1,11 +1,11 @@
+import os
 import random
 from telegram import (
     Update, 
     InlineKeyboardButton, 
     InlineKeyboardMarkup, 
     ReplyKeyboardMarkup, 
-    KeyboardButton,
-    InputSticker
+    KeyboardButton
 )
 from telegram.ext import (
     ApplicationBuilder, 
@@ -35,7 +35,6 @@ async def start(update: Update, context: CallbackContext):
     ]
     reply_kb = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    await update.message.reply_sticker("CAACAgIAAxkBAAEIu_RlZsHw2pE18dQ")  # весёлый стикер (Telegram сам заменит)
     await update.message.reply_text(
         f"Привет, {user.first_name}! 🎅\n"
         f"Добро пожаловать в *Тайного Санту*!",
@@ -53,7 +52,6 @@ async def budget(update: Update, context: CallbackContext):
 async def participate(update: Update, context: CallbackContext):
     user = update.effective_user
 
-    await update.message.reply_animation("https://media.giphy.com/media/du3J3cXyzhj75IOgvA/giphy.gif")
     await update.message.reply_text(
         "Отлично! 🎄\nНапиши, пожалуйста, свои пожелания к подарку.\n"
         "_Если пожеланий нет — так и напиши:_ «нет»",
@@ -78,7 +76,6 @@ async def wishes(update: Update, context: CallbackContext):
 
     context.user_data["waiting_wishes"] = False
 
-    await update.message.reply_sticker("CAACAgIAAxkBAAEIu_5lZsIWBXfD1F1w")
     await update.message.reply_text(
         "Ты успешно зарегистрирован! 🎅\n"
         "Жди жеребьёвки 😊"
@@ -137,6 +134,7 @@ async def draw(update: Update, context: CallbackContext):
 
 # --- ГЛАВНЫЙ ХЕНДЛЕР ---
 def main():
+    print("Запуск бота...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -148,7 +146,6 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, wishes))
 
-    print("Bot started!")
     app.run_polling()
 
 
