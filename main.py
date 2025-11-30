@@ -28,7 +28,6 @@ assignments = {}       # user_id: whom_to_gift_id
 
 # --------------------------------------------
 # СТИКЕРЫ / АНИМАЦИИ
-# (можешь заменить на любые свои)
 # --------------------------------------------
 WELCOME_STICKER = "CAACAgIAAxkBAAEBx9hmBYsQKqk5WmHuu9Bd39WmQ5cCsAACswIAAuXjqUs4Q3NbQobRQTUE"
 GIFT_ANIMATION = "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif"
@@ -43,9 +42,11 @@ def main_menu():
     btn1 = types.KeyboardButton("🎁 Участвовать")
     btn2 = types.KeyboardButton("📝 Мои данные")
     btn3 = types.KeyboardButton("🎅 Кому я дарю?")
+    btn4 = types.KeyboardButton("📋 Список участников")  # новая кнопка
     keyboard.add(btn1)
     keyboard.add(btn2)
     keyboard.add(btn3)
+    keyboard.add(btn4)
     return keyboard
 
 
@@ -54,7 +55,7 @@ def main_menu():
 # -----------------------------------------------------
 def admin_menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("📋 Список участников", "🔄 Запустить жеребьёвку")
+    kb.add("📋 Полный список участников", "🔄 Запустить жеребьёвку")
     kb.add("❌ Удалить участника", "💬 Логи")
     kb.add("⬅️ Назад")
     return kb
@@ -89,8 +90,7 @@ def participate(msg):
 
     bot.send_message(
         user_id,
-        "🎁 Отлично!\n\nНапиши, пожалуйста, **своё имя и фамилию**, "
-        "чтобы участникам было понятно, кого они поздравляют."
+        "🎁 Отлично!\n\nНапиши, пожалуйста, **своё имя и фамилию**"
     )
     bot.register_next_step_handler(msg, save_name)
 
@@ -103,7 +103,7 @@ def save_name(msg):
 
     bot.send_message(
         user_id,
-        "✨ Отлично! Теперь напиши, пожалуйста, свои пожелания к подарку.\n"
+        "✨ Отлично! Теперь напиши свои пожелания к подарку.\n"
         "_Если пожеланий нет — просто напиши «нет»._",
         parse_mode="Markdown"
     )
@@ -173,6 +173,22 @@ def who_i_gift(msg):
 
 
 # -----------------------------------------------------
+# СПИСОК УЧАСТНИКОВ (только ИМЕНА)
+# -----------------------------------------------------
+@bot.message_handler(func=lambda m: m.text == "📋 Список участников")
+def show_participants(msg):
+    if not participants:
+        bot.send_message(msg.chat.id, "Пока никто не зарегистрирован 🥲")
+        return
+
+    text = "🎄 *Список участников:*\n\n"
+    for data in participants.values():
+        text += f"• {data['name']}\n"
+
+    bot.send_message(msg.chat.id, text, parse_mode="Markdown")
+
+
+# -----------------------------------------------------
 # АДМИН — ВХОД
 # -----------------------------------------------------
 @bot.message_handler(commands=["admin"])
@@ -185,9 +201,9 @@ def admin(msg):
 
 
 # -----------------------------------------------------
-# АДМИН — СПИСОК
+# АДМИН — ПОЛНЫЙ СПИСОК
 # -----------------------------------------------------
-@bot.message_handler(func=lambda m: m.text == "📋 Список участников")
+@bot.message_handler(func=lambda m: m.text == "📋 Полный список участников")
 def admin_list(msg):
     if msg.from_user.id != ADMIN_ID:
         return
@@ -198,7 +214,7 @@ def admin_list(msg):
 
     text = "📋 *Участники:*\n\n"
     for uid, data in participants.items():
-        text += f"{data['name']} — {uid}\n"
+        text += f"{data['name']} — {uid} — Пожелания: {data['wish']}\n"
 
     bot.send_message(msg.chat.id, text, parse_mode="Markdown")
 
@@ -274,7 +290,13 @@ def run_draw(msg):
             "🎅 *Жеребьёвка прошла!* Вот кому ты даришь подарок:",
             parse_mode="Markdown"
         )
-        who_i_gift(types.SimpleNamespace(from_user=types.User(id=u)))
+        # отправка сразу деталей
+        target = participants[t]
+        bot.send_message(
+            u,
+            f"👤 *{target['name']}*\n🎀 Пожелания: {target['wish']}",
+            parse_mode="Markdown"
+        )
 
     bot.send_message(msg.chat.id, "✔ Готово! Рассылка выполнена.")
     logging.info("DRAW COMPLETED: assignments = %s", assignments)
